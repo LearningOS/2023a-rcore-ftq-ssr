@@ -13,10 +13,11 @@ mod context;
 mod switch;
 #[allow(clippy::module_inception)]
 mod task;
-
 use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
+// use crate::syscall::process::TASK_INFO;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -70,7 +71,16 @@ lazy_static! {
         }
     };
 }
-
+/// write syscall
+const SYSCALL_WRITE: usize = 64;
+/// exit syscall
+const SYSCALL_EXIT: usize = 93;
+/// yield syscall
+const SYSCALL_YIELD: usize = 124;
+/// gettime syscall
+const SYSCALL_GET_TIME: usize = 169;
+/// taskinfo syscall
+const SYSCALL_TASK_INFO: usize = 410;
 impl TaskManager {
     /// Run the first task in task list.
     ///
@@ -80,6 +90,8 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let task0 = &mut inner.tasks[0];
         task0.task_status = TaskStatus::Running;
+        // (task0.task_cx).ss=[0;6];
+        (task0.task_cx).ss[0]=get_time_ms();
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -89,7 +101,46 @@ impl TaskManager {
         }
         panic!("unreachable in run_first_task!");
     }
-
+    /// add_syscall_times
+    pub fn add_syscall_times(&self,syscall_id:usize){
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let tasknow = &mut inner.tasks[current];
+        match syscall_id {
+            SYSCALL_WRITE => (tasknow.task_cx).ss[1]+=1,
+            SYSCALL_EXIT => (tasknow.task_cx).ss[2]+=1,
+            SYSCALL_YIELD => (tasknow.task_cx).ss[3]+=1,
+            SYSCALL_GET_TIME => (tasknow.task_cx).ss[4]+=1,
+            SYSCALL_TASK_INFO => (tasknow.task_cx).ss[5]+=1,
+            _ => panic!("Unsupported syscall_id: {}", syscall_id),
+        }
+    }
+    /// get_current_status
+    fn get_current_status(&self) -> TaskStatus{
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_status
+    }
+    /// get_current_syscall_times
+    pub fn get_current_syscall_times(&self)->[u32;500]{
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let tasknow = &mut inner.tasks[current];
+        let mut tmp_call:[u32;500]=[0;500];
+        tmp_call[SYSCALL_WRITE] = (tasknow.task_cx).ss[1] as u32;
+        tmp_call[SYSCALL_EXIT] = (tasknow.task_cx).ss[2] as u32;
+        tmp_call[SYSCALL_YIELD] = (tasknow.task_cx).ss[3] as u32;
+        tmp_call[SYSCALL_GET_TIME] = (tasknow.task_cx).ss[4] as u32;
+        tmp_call[SYSCALL_TASK_INFO] = (tasknow.task_cx).ss[5] as u32;
+        tmp_call
+    }
+    /// get_current_runtime
+    fn get_current_runtime(&self) -> usize{
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let tasknow = &mut inner.tasks[current];
+        get_time_ms()-(tasknow.task_cx).ss[0]
+    }
     /// Change the status of current `Running` task into `Ready`.
     fn mark_current_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
@@ -122,6 +173,14 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            let tasknt = &mut inner.tasks[next];
+            // tasknt.task_status = TaskStatus::Running;
+            // (tasknt.task_cx).ss=[0;6];
+            if (tasknt.task_cx).ss[0]==0 {(tasknt.task_cx).ss[0]=get_time_ms();}
+            // println!("task {};runtime={}",current,(tasknt.task_cx).ss[0]);
+            // for i in 0..12{
+            //     println!("{}:{}",i,(tasknt.task_cx).s[i]);
+            // }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -168,4 +227,23 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// return the current status
+pub fn get_current_status()->TaskStatus{
+    TASK_MANAGER.get_current_status()
+}
+/// return the current syscall_times
+pub fn get_current_syscall_times()->[u32;500]{
+    TASK_MANAGER.get_current_syscall_times()
+}
+/// return the current runtime
+pub fn get_current_runtime()->usize{
+    TASK_MANAGER.get_current_runtime()
+}
+
+
+/// add_syscall_times
+pub fn add_syscall_times(syscall_id:usize){
+    TASK_MANAGER.add_syscall_times(syscall_id);
 }
