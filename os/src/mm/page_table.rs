@@ -192,7 +192,7 @@ pub fn change_mut_usize(token: usize, ptr: usize,data:usize){
     let page_table = PageTable::from_token(token);
     let start = ptr as usize;
     let start_va = VirtAddr::from(start);
-    let vpn = start_va.floor();
+    let vpn = start_va.floor(); 
     let ppn = page_table.translate(vpn).unwrap().ppn();
     let usiz_array: & 'static mut [usize; crate::config::PAGE_SIZE/core::mem::size_of::<usize>()] = ppn.get_mut();
     usiz_array[start_va.page_offset()/core::mem::size_of::<usize>()] = data;
