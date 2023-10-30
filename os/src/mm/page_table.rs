@@ -181,7 +181,6 @@ pub fn remove_mmap(token: usize,start:usize, len: usize) -> isize{
     // let vpn = start_va.floor();
     let end = start + len;
     let end_va = VirtAddr::from(end);
-    // println!("vpn1  :  {:?}      vpn2   :   {:?}",vpn,end_va);
     for i in (start..end).step_by(PAGE_SIZE).into_iter(){
         if let None=page_table.translate(VirtAddr::from(i).floor()) {return -1;}
     }
