@@ -17,9 +17,10 @@ use address::{StepByOne, VPNRange};
 pub use frame_allocator::{frame_alloc, FrameTracker};
 pub use memory_set::remap_test;
 pub use memory_set::{kernel_stack_position, MapPermission, MemorySet, KERNEL_SPACE};
-pub use page_table::{translated_byte_buffer, PageTableEntry};
-use page_table::{PTEFlags, PageTable};
+pub use page_table::{create_mmap,remove_mmap,translated_byte_buffer, PageTableEntry,change_mut_usize,change_mut_u32,change_mut_u8};
 
+pub use page_table::PageTable;
+// pub use page_table::PTEFlags;
 /// initiate heap allocator, frame allocator and kernel space
 pub fn init() {
     heap_allocator::init_heap();

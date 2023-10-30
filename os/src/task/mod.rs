@@ -14,11 +14,17 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+// use std::fs::Permissions;
+
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
+use super::mm::VirtAddr;
+use super::mm::PageTable;
+use super::mm::MapPermission;
 use alloc::vec::Vec;
 use lazy_static::*;
+use crate::timer::get_time_us;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
@@ -70,6 +76,22 @@ lazy_static! {
     };
 }
 
+/// write syscall
+const SYSCALL_WRITE: usize = 64;
+/// exit syscall
+const SYSCALL_EXIT: usize = 93;
+/// yield syscall
+const SYSCALL_YIELD: usize = 124;
+/// gettime syscall
+const SYSCALL_GET_TIME: usize = 169;
+/// sbrk syscall
+const SYSCALL_SBRK: usize = 214;
+/// munmap syscall
+const SYSCALL_MUNMAP: usize = 215;
+/// mmap syscall
+const SYSCALL_MMAP: usize = 222;
+/// taskinfo syscall
+const SYSCALL_TASK_INFO: usize = 410;
 impl TaskManager {
     /// Run the first task in task list.
     ///
@@ -79,6 +101,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
+        (next_task.task_cx).ss[0]=get_time_us()/1000;
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -89,6 +112,53 @@ impl TaskManager {
         panic!("unreachable in run_first_task!");
     }
 
+        /// add_syscall_times
+        pub fn add_syscall_times(&self,syscall_id:usize){
+            let mut inner = self.inner.exclusive_access();
+            let current = inner.current_task;
+            let tasknow = &mut inner.tasks[current];
+            match syscall_id {
+                SYSCALL_WRITE => (tasknow.task_cx).ss[1]+=1,
+                SYSCALL_EXIT => (tasknow.task_cx).ss[2]+=1,
+                SYSCALL_YIELD => (tasknow.task_cx).ss[3]+=1,
+                SYSCALL_GET_TIME => (tasknow.task_cx).ss[4]+=1,
+                SYSCALL_TASK_INFO => (tasknow.task_cx).ss[5]+=1,
+                SYSCALL_SBRK => (tasknow.task_cx).ss[6]+=1,
+                SYSCALL_MUNMAP => (tasknow.task_cx).ss[7]+=1,
+                SYSCALL_MMAP => (tasknow.task_cx).ss[8]+=1,
+                _ => panic!("Unsupported syscall_id: {}", syscall_id),
+            }
+        }
+        /// get_current_status
+        fn get_current_status(&self) -> TaskStatus{
+            let inner = self.inner.exclusive_access();
+            let current = inner.current_task;
+            inner.tasks[current].task_status
+        }
+        /// get_current_syscall_times
+        pub fn get_current_syscall_times(&self)->[u32;500]{
+            let mut inner = self.inner.exclusive_access();
+            let current = inner.current_task;
+            let tasknow = &mut inner.tasks[current];
+            let mut tmp_call:[u32;500]=[0;500];
+            tmp_call[SYSCALL_WRITE] = (tasknow.task_cx).ss[1] as u32;
+            tmp_call[SYSCALL_EXIT] = (tasknow.task_cx).ss[2] as u32;
+            tmp_call[SYSCALL_YIELD] = (tasknow.task_cx).ss[3] as u32;
+            tmp_call[SYSCALL_GET_TIME] = (tasknow.task_cx).ss[4] as u32;
+            tmp_call[SYSCALL_TASK_INFO] = (tasknow.task_cx).ss[5] as u32;
+            tmp_call[SYSCALL_SBRK] = (tasknow.task_cx).ss[6] as u32;
+            tmp_call[SYSCALL_MUNMAP] = (tasknow.task_cx).ss[7] as u32;
+            tmp_call[SYSCALL_MMAP] = (tasknow.task_cx).ss[8] as u32;
+            tmp_call
+        }
+        /// get_current_runtime
+        fn get_current_runtime(&self) -> usize{
+            let mut inner = self.inner.exclusive_access();
+            let current = inner.current_task;
+            let tasknow = &mut inner.tasks[current];
+            // println!("nowtime={}  firsttime:{}",get_time_us()/1000,(tasknow.task_cx).ss[0]);
+            get_time_us()/1000-(tasknow.task_cx).ss[0]
+        }
     /// Change the status of current `Running` task into `Ready`.
     fn mark_current_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
@@ -125,7 +195,20 @@ impl TaskManager {
         let inner = self.inner.exclusive_access();
         inner.tasks[inner.current_task].get_trap_cx()
     }
-
+    /// remove_current_maparea
+    fn remove_current_maparea(&self, page_table: &mut PageTable,start: VirtAddr,end: VirtAddr) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        let cur=inner.current_task;
+        inner.tasks[cur].memory_set.remove_area(page_table, start,end)
+        
+    }
+    /// create_current_maparea
+    fn create_current_maparea(&self,start: VirtAddr,end: VirtAddr,perms:MapPermission){
+        let mut inner = self.inner.exclusive_access();
+        let cur=inner.current_task;
+        inner.tasks[cur].memory_set.insert_framed_area(start,end,perms);
+        // inner.tasks[cur].memory_set.add_area(page_table, start,end);
+    }
     /// Change the current 'Running' task's program break
     pub fn change_current_program_brk(&self, size: i32) -> Option<usize> {
         let mut inner = self.inner.exclusive_access();
@@ -140,6 +223,7 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            if (inner.tasks[next].task_cx).ss[0]==0 {(inner.tasks[next].task_cx).ss[0]=get_time_us()/1000;}
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -201,4 +285,30 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+/// return the current status
+pub fn get_current_status()->TaskStatus{
+    TASK_MANAGER.get_current_status()
+}
+/// return the current syscall_times
+pub fn get_current_syscall_times()->[u32;500]{
+    TASK_MANAGER.get_current_syscall_times()
+}
+/// return the current runtime
+pub fn get_current_runtime()->usize{
+    TASK_MANAGER.get_current_runtime()
+}
+
+
+/// add_syscall_times
+pub fn add_syscall_times(syscall_id:usize){
+    TASK_MANAGER.add_syscall_times(syscall_id);
+}
+/// remove_current_maparea
+pub fn remove_current_maparea(page_table: &mut PageTable,start: VirtAddr,end: VirtAddr) -> bool {
+    TASK_MANAGER.remove_current_maparea(page_table, start,end)
+}
+/// create_current_maparea
+pub fn create_current_maparea(start: VirtAddr,end: VirtAddr,perms:MapPermission){
+    TASK_MANAGER.create_current_maparea(start,end,perms);
 }

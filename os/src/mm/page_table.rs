@@ -4,7 +4,10 @@ use super::{frame_alloc, FrameTracker, PhysPageNum, StepByOne, VirtAddr, VirtPag
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
-
+use crate::config::PAGE_SIZE;
+// use riscv::paging::PageTableFlags;
+// use riscv::addr::PhysAddr;
+// mod address;
 bitflags! {
     /// page table entry flags
     pub struct PTEFlags: u8 {
@@ -18,6 +21,9 @@ bitflags! {
         const D = 1 << 7;
     }
 }
+
+use super::memory_set::MapPermission;
+use crate::task::{remove_current_maparea,create_current_maparea,};
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -148,6 +154,70 @@ impl PageTable {
         8usize << 60 | self.root_ppn.0
     }
 }
+
+/// alloc the mmap between virtual addr and physical addr
+pub fn create_mmap(token: usize,start:usize, len: usize, _port: usize) -> isize{
+    let page_table = PageTable::from_token(token);
+    let start_va = VirtAddr::from(start);
+    // let vpn = start_va.floor();
+    let end = start + len;
+    let end_va = VirtAddr::from(end);
+    let mut flags=MapPermission::U;
+    if _port&(1<<0)!=0 {flags|=MapPermission::R;}
+    if _port&(1<<1)!=0 {flags|=MapPermission::W;}
+    if _port&(1<<2)!=0 {flags|=MapPermission::X;}
+    for i in (start..end).step_by(PAGE_SIZE).into_iter(){
+        if let Some(x)=page_table.translate(VirtAddr::from(i).floor()) {
+            if x.is_valid() {return -1;}
+        }
+    }
+    create_current_maparea(start_va,end_va,flags);
+    0
+}
+/// remove the mmap between virtual addr and physical addr
+pub fn remove_mmap(token: usize,start:usize, len: usize) -> isize{
+    let mut page_table = PageTable::from_token(token);
+    let start_va = VirtAddr::from(start);
+    // let vpn = start_va.floor();
+    let end = start + len;
+    let end_va = VirtAddr::from(end);
+    // println!("vpn1  :  {:?}      vpn2   :   {:?}",vpn,end_va);
+    for i in (start..end).step_by(PAGE_SIZE).into_iter(){
+        if let None=page_table.translate(VirtAddr::from(i).floor()) {return -1;}
+    }
+    if remove_current_maparea(&mut page_table, start_va,end_va)==false {return -1;}
+    0
+}
+/// Translate&Copy mut to a mutable usize through page table
+pub fn change_mut_usize(token: usize, ptr: usize,data:usize){
+    let page_table = PageTable::from_token(token);
+    let start = ptr as usize;
+    let start_va = VirtAddr::from(start);
+    let vpn = start_va.floor();
+    let ppn = page_table.translate(vpn).unwrap().ppn();
+    let usiz_array: & 'static mut [usize; crate::config::PAGE_SIZE/core::mem::size_of::<usize>()] = ppn.get_mut();
+    usiz_array[start_va.page_offset()/core::mem::size_of::<usize>()] = data;
+}
+/// Translate&Copy mut to a mutable u32 through page table
+pub fn change_mut_u32(token: usize, ptr: usize,data:u32){
+    let page_table = PageTable::from_token(token);
+    let start = ptr as usize;
+    let start_va = VirtAddr::from(start);
+    let vpn = start_va.floor();
+    let ppn = page_table.translate(vpn).unwrap().ppn();
+    let usiz_array: & 'static mut [u32; crate::config::PAGE_SIZE/core::mem::size_of::<u32>()] = ppn.get_mut();
+    usiz_array[start_va.page_offset()/core::mem::size_of::<u32>()] = data;
+}/// Translate&Copy mut to a mutable u8 through page table
+pub fn change_mut_u8(token: usize, ptr: usize,data:u8){
+    let page_table = PageTable::from_token(token);
+    let start = ptr as usize;
+    let start_va = VirtAddr::from(start);
+    let vpn = start_va.floor();
+    let ppn = page_table.translate(vpn).unwrap().ppn();
+    let usiz_array: & 'static mut [u8; crate::config::PAGE_SIZE/core::mem::size_of::<u8>()] = ppn.get_mut();
+    usiz_array[start_va.page_offset()/core::mem::size_of::<u8>()] = data;
+}
+
 
 /// Translate&Copy a ptr[u8] array with LENGTH len to a mutable u8 Vec through page table
 pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&'static mut [u8]> {

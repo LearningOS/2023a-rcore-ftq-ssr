@@ -1,7 +1,9 @@
 //! Implementation of [`MapArea`] and [`MemorySet`].
 
 use super::{frame_alloc, FrameTracker};
-use super::{PTEFlags, PageTable, PageTableEntry};
+// pub use page_table::PageTable;
+use crate::mm::page_table::PTEFlags;
+use super::{PageTable, PageTableEntry};
 use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use super::{StepByOne, VPNRange};
 use crate::config::{
@@ -257,6 +259,35 @@ impl MemorySet {
             .find(|area| area.vpn_range.get_start() == start.floor())
         {
             area.append_to(&mut self.page_table, new_end.ceil());
+            true
+        } else {
+            false
+        }
+    }
+    /// remove the area
+    pub fn remove_area(&mut self, page_table: &mut PageTable,start: VirtAddr,end: VirtAddr) -> bool {
+        if let Some(area) = self
+            .areas
+            .iter_mut()
+            .find(|area| area.vpn_range.get_start() == start.floor())
+        {
+            if area.vpn_range.get_end()!=end.ceil()  {return false;}
+            area.unmap(page_table);
+            true
+        } else {
+            false
+        }
+    }
+    /// add the area
+    pub fn add_area(&mut self, page_table: &mut PageTable,start: VirtAddr,end: VirtAddr) -> bool {
+        if let Some(area) = self
+            .areas
+            .iter_mut()
+            .find(|area| area.vpn_range.get_start() == start.floor())
+        {
+            area.map_one(page_table, start.floor());
+            // if start.floor()!=end.ceil() {area.unmap_one(page_table, end.ceil());}
+            if area.vpn_range.get_end()!=end.ceil()  {return true;}
             true
         } else {
             false
