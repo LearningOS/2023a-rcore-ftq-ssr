@@ -7,8 +7,16 @@ use crate::{
     mm::{translated_refmut, translated_str},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus,
+        suspend_current_and_run_next, TaskStatus,TaskControlBlock,
+        get_current_status, get_current_runtime,get_current_syscall_times,
+        create_current_maparea,
+        remove_current_maparea,
+        set_priority,
     },
+    timer::get_time_us,
+    mm::{PageTable,VirtAddr,
+        MapPermission,},
+    config::PAGE_SIZE,
 };
 
 #[repr(C)]
@@ -122,9 +130,24 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
         "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    // -1
+    let us=get_time_us();
+    let ptr=_ts as usize;
+    *translated_refmut(current_user_token(),ptr as *mut _)=us / 1_000_000;
+    *translated_refmut(current_user_token(), (ptr+8) as *mut _)=us % 1_000_000;
+    0
 }
 
+// const SYSCALL_WRITE: usize = 64;
+// /// exit syscall
+// const SYSCALL_EXIT: usize = 93;
+// /// yield syscall
+// const SYSCALL_YIELD: usize = 124;
+// /// gettime syscall
+// const SYSCALL_GET_TIME: usize = 169;
+// /// sbrk syscall
+// /// taskinfo syscall
+// const SYSCALL_TASK_INFO: usize = 410;
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
@@ -133,7 +156,21 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
         "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    // -1
+    let _status=get_current_status();
+    let _syscall_times=get_current_syscall_times();
+    let _run_time=get_current_runtime();
+    // println!("SYSCALL_WRITE={}",_syscall_times[SYSCALL_WRITE]);
+    // println!("SYSCALL_EXIT={}",_syscall_times[SYSCALL_EXIT]);
+    // println!("SYSCALL_YIELD={}",_syscall_times[SYSCALL_YIELD]);
+    // println!("SYSCALL_GET_TIME={}",_syscall_times[SYSCALL_GET_TIME]);
+    // println!("SYSCALL_TASK_INFO={}",_syscall_times[SYSCALL_TASK_INFO]);
+    *translated_refmut(current_user_token(),_ti as *mut _)=TaskInfo{
+        status: _status,
+        syscall_times:_syscall_times,
+        time: _run_time
+    };
+    0
 }
 
 /// YOUR JOB: Implement mmap.
@@ -142,7 +179,20 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
         "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    // -1
+    if _port & !0x7 != 0||_port & 0x7 == 0||_start%PAGE_SIZE!=0 {return -1;}
+    let page_table = PageTable::from_token(current_user_token());
+    let mut flags=MapPermission::U;
+    if _port&(1<<0)!=0 {flags|=MapPermission::R;}
+    if _port&(1<<1)!=0 {flags|=MapPermission::W;}
+    if _port&(1<<2)!=0 {flags|=MapPermission::X;}
+    for i in (_start.._start+_len).step_by(PAGE_SIZE).into_iter(){
+        if let Some(x)=page_table.translate(VirtAddr::from(i).floor()) {
+            if x.is_valid() {return -1;}
+        }
+    }
+    create_current_maparea(VirtAddr::from(_start),VirtAddr::from(_start+_len),flags);
+    0
 }
 
 /// YOUR JOB: Implement munmap.
@@ -151,7 +201,14 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
         "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    // -1
+    if _start%PAGE_SIZE!=0 {return -1;}
+    let mut page_table = PageTable::from_token(current_user_token());
+    for i in (_start.._start+_len).step_by(PAGE_SIZE).into_iter(){
+        if let None=page_table.translate(VirtAddr::from(i).floor()) {return -1;}
+    }
+    if remove_current_maparea(&mut page_table, VirtAddr::from(_start),VirtAddr::from(_start+_len))==false {return -1;}
+    0
 }
 
 /// change data segment size
@@ -171,7 +228,23 @@ pub fn sys_spawn(_path: *const u8) -> isize {
         "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, _path);
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        let current_task = current_task().unwrap();
+        let new_task = Arc::new(TaskControlBlock::new(data));
+        let new_pid: usize=new_task.pid.0;
+        // new_task.exec(data);
+        let mut parent_inner = current_task.inner_exclusive_access();
+        parent_inner.children.push(new_task.clone());
+        let mut child_inner = new_task.inner_exclusive_access();
+        child_inner.parent=Some(Arc::downgrade(&current_task));
+        drop(child_inner);
+        add_task(new_task);
+        new_pid as isize
+    } else {
+         -1
+    }
 }
 
 // YOUR JOB: Set task priority.
@@ -180,5 +253,10 @@ pub fn sys_set_priority(_prio: isize) -> isize {
         "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    if _prio<=1 {
+        -1
+    }else{
+        set_priority(_prio);
+        _prio
+    }
 }

@@ -300,6 +300,20 @@ impl MemorySet {
             false
         }
     }
+    /// remove the area
+    pub fn remove_area(&mut self, page_table: &mut PageTable,start: VirtAddr,end: VirtAddr) -> bool {
+        if let Some(area) = self
+            .areas
+            .iter_mut()
+            .find(|area| area.vpn_range.get_start() == start.floor())
+        {
+            if area.vpn_range.get_end()!=end.ceil()  {return false;}
+            area.unmap(page_table);
+            true
+        } else {
+            false
+        }
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

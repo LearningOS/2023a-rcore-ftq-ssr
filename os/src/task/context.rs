@@ -1,5 +1,6 @@
 //! Implementation of [`TaskContext`]
 use crate::trap::trap_return;
+const BIG_STRIDE:isize=1000000;
 
 #[repr(C)]
 /// task context structure containing some registers
@@ -10,6 +11,14 @@ pub struct TaskContext {
     sp: usize,
     /// s0-11 register, callee saved
     s: [usize; 12],
+    ///save runtime and taskinfo times
+    pub ss: [usize; 16],
+    ///priority
+    pub prio:isize,
+    ///stride
+    pub stride:usize,
+    ///pass
+    pub pass:usize,
 }
 
 impl TaskContext {
@@ -19,6 +28,10 @@ impl TaskContext {
             ra: 0,
             sp: 0,
             s: [0; 12],
+            ss: [0; 16],
+            prio: 16,
+            stride: 0,
+            pass: (BIG_STRIDE/16)as usize,
         }
     }
     /// Create a new task context with a trap return addr and a kernel stack pointer
@@ -27,6 +40,10 @@ impl TaskContext {
             ra: trap_return as usize,
             sp: kstack_ptr,
             s: [0; 12],
+            ss: [0; 16],
+            prio: 16,
+            stride: 0,
+            pass: (BIG_STRIDE/16)as usize,
         }
     }
 }
