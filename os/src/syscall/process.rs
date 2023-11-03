@@ -70,7 +70,7 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
         // ts_sec[0] = (us / 1_000_000) as u8;
         // let mut buffer: alloc::vec::Vec<&mut [u8]> = translated_byte_buffer(current_user_token(), (*_ts).sec as *const u8, 1);
         let mut ptr=_ts as usize;
-        change_mut_usize(current_user_token(),ptr,us / 1_000_000);
+        change_mut_usize(current_user_token(),ptr,us / 1_000_000);//与余智超,叶可禾交流了此处变量虚拟地址转物理地址的实现
         ptr+=8;
         change_mut_usize(current_user_token(),ptr,us % 1_000_000);
     }
