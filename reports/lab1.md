@@ -1,17 +1,17 @@
 # Lab1 CH3实验报告
 
 ## 实现功能总结
-
   这次实验的要求是在分时多任务系统中引入一个新的系统调用sys_task_info 以获取当前任务的信息，包括任务状态）、任务使用的系统调用及调用次数
 及系统调用时刻距离任务第一次被调度时刻的时长，与之前的sys_get_time等系统调用不同，taskinfo需要得到任务控制快的相关信息  
   首先任务状态我们可以直接在任务管理器中添加一个函数查询当前任务的TaskStatus；然后第二个要求，任务使用的系统调用我们可以可以在任务控制块
 中的task_cx里添加一个数组，用于记录各个系统调用，为了节省空间，使用各个系统重新编号的序号，并添加一个函数用于获取当时的各个系统调用次数，
 至于更新系统调用次数就放在入内核态系统调用异常处理函数之后，进入具体系统调用函数之前维护；最后一个要求我选择在run_first_task与run_next_task
 处记录，同时判断是否是第一次修改，然后在需要时获取这个值就可以了。
-
 ## 简答作业
-
-1. 无报错，sbi版本：RustSBI version 0.3.0-alpha.
+1. sbi版本：RustSBI version 0.3.0-alpha.分别报错  
+  - [kernel] PageFault in application, bad addr = 0x0, bad instruction = 0x804003c4, kernel killed it.  
+  - [kernel] IllegalInstruction in application, kernel killed it.  
+  - [kernel] IllegalInstruction in application, kernel killed it.
 
 2. 第二题
     1. 刚进入__restore时，a0代表的是内核栈，两种用法分别是trap后恢复上下文和在开始是初始化各个寄存器状态
@@ -25,7 +25,6 @@
        - CPU 会跳转到 sepc 寄存器指向的那条指令，然后继续执行。
     6. sp值指向内核栈，sscrath指向用户栈
     7. 从U态进入S态是由ecall发生的
-
 ## 荣誉准则
 
 1. 在完成本次实验的过程（含此前学习的过程）中，我曾分别与 以下各位 就（与本次实验相关的）以下方面做过交流，还在代码中对应的位置以注释形式记录了
