@@ -8,7 +8,11 @@
 至于更新系统调用次数就放在入内核态系统调用异常处理函数之后，进入具体系统调用函数之前维护；最后一个要求我选择在run_first_task与run_next_task
 处记录，同时判断是否是第一次修改，然后在需要时获取这个值就可以了。
 ## 简答作业
-1. 无报错，sbi版本：RustSBI version 0.3.0-alpha.
+1. sbi版本：RustSBI version 0.3.0-alpha.分别报错  
+  - [kernel] PageFault in application, bad addr = 0x0, bad instruction = 0x804003c4, kernel killed it.  
+  - [kernel] IllegalInstruction in application, kernel killed it.  
+  - [kernel] IllegalInstruction in application, kernel killed it.
+
 2. 第二题
     1. 刚进入__restore时，a0代表的是内核栈，两种用法分别是trap后恢复上下文和在开始是初始化各个寄存器状态
     2. 特殊处理了sstatus,sepc与sscratch,其中sstatus用于记录Trap 发生之前 CPU 处在哪个特权级（S/U）等信息；sepc当 Trap 是一个异常的时候，
